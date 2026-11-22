@@ -1,4 +1,4 @@
-# n8n-ai-job-alert-telegram-bot
+
 Personal Project
 # AI Job Filter & Instant Alert Bot (n8n + Gemini + Sheets + Telegram)
 

@@ -8,7 +8,7 @@ Personal Project
 An automated n8n workflow that fetches live tech job posts from Hacker News RSS, evaluates and scores each role using Google Gemini, safely parses the AI JSON response in JavaScript, deduplicates high-match jobs in Google Sheets, and pushes instant formatted alerts to Telegram.
 
 ## Workflow Architecture
-![Workflow Diagram](./workflow-diagram.png)
+![Workflow Diagram](./workflow-diagram.png.png)
 
 ## How It Works (Step-by-Step)
 1. **Live RSS Feed Intake (`1. Fetch Live Job Feed` & `2. Limit to 3 Items`):** Pulls live listings from `https://hnrss.org/jobs` and limits the batch size for testing (easily swappable from Manual Trigger to Schedule Trigger).

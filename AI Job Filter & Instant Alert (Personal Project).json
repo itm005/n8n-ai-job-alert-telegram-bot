@@ -1,0 +1,395 @@
+{
+  "name": "AI Job Filter & Instant Alert (Personal Project)",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "ca2588fa-6136-442a-b30e-c9ffc150bfd6",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "url": "https://hnrss.org/jobs",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "7565641a-e630-4787-9209-bf4130441548",
+      "name": "1. Fetch Live Job Feed"
+    },
+    {
+      "parameters": {
+        "maxItems": 3
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        448,
+        0
+      ],
+      "id": "31fc44bc-7a40-4451-baa2-ccb0c5ea8da2",
+      "name": "2. Limit to 3 Items"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "models/gemini-3-flash-preview",
+          "cachedResultName": "Gemini 3 Flash Preview",
+          "cachedResultUrl": ""
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a recruitment assistant evaluating job posts for a tech/automation specialist.\nAnalyze the job below and return ONLY a valid JSON object (no markdown, no explanation) with these exact keys:\n- \"score\": integer from 1 to 10 based on clarity and relevance to software, AI, automation, or engineering roles\n- \"summary\": 1-2 short sentences summarizing the role\n- \"key_skills\": comma-separated list of 3-5 main skills mentioned (or \"General Tech\" if not listed)\n- \"draft_hook\": 1 short, natural opening sentence a candidate could use to apply\n\nJob Title: {{ $json.title }}\nJob Description: {{ $json.contentSnippet || $json.content || 'No details provided' }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "35fbe599-3a7f-4891-8826-6b5c43f2cee4",
+      "name": "3. AI Analyze & Score"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const raw = $input.item.json;\nlet text =\n  raw?.content?.[0]?.text ||\n  raw?.message?.content ||\n  raw?.output?.[0]?.content?.[0]?.text ||\n  raw?.content?.parts?.[0]?.text ||\n  raw?.text ||\n  raw?.choices?.[0]?.message?.content ||\n  JSON.stringify(raw);\n\nconst cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();\n\nlet parsed = {\n  score: 0,\n  summary: 'Could not parse AI output',\n  key_skills: 'N/A',\n  draft_hook: 'N/A'\n};\n\ntry {\n  const match = cleaned.match(/\\{[\\s\\S]*\\}/);\n  parsed = JSON.parse(match ? match[0] : cleaned);\n} catch (e) {\n  parsed.summary = cleaned.slice(0, 200);\n}\n\nconst source = $('2. Limit to 3 Items').item.json;\n\nreturn {\n  json: {\n    timestamp: new Date().toISOString(),\n    title: source.title || 'Untitled Job',\n    link: source.link || 'N/A',\n    score: Number(parsed.score) || 0,\n    summary: parsed.summary || 'No summary',\n    key_skills: Array.isArray(parsed.key_skills)\n      ? parsed.key_skills.join(', ')\n      : (parsed.key_skills || 'N/A'),\n    draft_hook: parsed.draft_hook || 'N/A'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "2dbaf7ba-322f-4db4-9609-a9a2e375cb4d",
+      "name": "4. Parse & Clean AI JSON"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "bed030c2-25d9-4f9a-882d-c65711cd820c",
+              "leftValue": "={{ $json.score }}",
+              "rightValue": 6,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1264,
+        0
+      ],
+      "id": "bf8fe37c-60cc-4131-b929-97ff10d079bf",
+      "name": "5. Is High-Match?"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1488,
+        96
+      ],
+      "id": "3fdbd887-9171-4d63-bd8c-a44c30e5f879",
+      "name": "5b. Skip Low-Score Job"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "AI_Filtered_Jobs",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.timestamp }}",
+            "Link": "={{ $json.link }}",
+            "Title": "={{ $json.title }}",
+            "Score": "={{ $json.score }}",
+            "Summary": "={{ $json.summary }}",
+            "Key_Skills": "={{ $json.key_skills }}",
+            "Draft_Hook": "={{ $json.draft_hook }}"
+          },
+          "matchingColumns": [
+            "Link"
+          ],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Title",
+              "displayName": "Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Link",
+              "displayName": "Link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Score",
+              "displayName": "Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Summary",
+              "displayName": "Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Key_Skills",
+              "displayName": "Key_Skills",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Draft_Hook",
+              "displayName": "Draft_Hook",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1488,
+        -96
+      ],
+      "id": "d03aecd1-bb7c-4f1c-84c7-889e3ab542f5",
+      "name": "6. Save & Dedup in Sheets"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=🤖 HIGH-MATCH OPPORTUNITY (Score: {{ $json.Score }}/10)  \n📌 Title: {{ $json.Title }} \n📝 AI Summary: {{ $json.Summary }} \n🛠 Skills: {{ $json.Key_Skills }} \n💡 Draft Hook: {{ $json.Draft_Hook }} \n🔗 Link: {{ $json.Link }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1712,
+        -96
+      ],
+      "id": "18b5e61c-3460-4613-8e14-203ca7ced677",
+      "name": "7. Send AI Alert to Telegram"
+    },
+    {
+      "parameters": {
+        "content": "## 1. LIVE RSS FEED INTAKE (Swappable to Schedule Trigger)",
+        "height": 96,
+        "width": 400,
+        "color": "#43619D"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        160,
+        -128
+      ],
+      "id": "e0ce8dcf-200a-4a6b-9919-f13e273db15d",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. AI SCORING, JSON EXTRACTION & FILTERING",
+        "height": 80,
+        "width": 592
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        704,
+        -128
+      ],
+      "id": "b898c7dc-adc5-4ffc-b614-17401584891f",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## 3. DEDUPLICATED SHEETS LOG & TELEGRAM ALERT",
+        "height": 96,
+        "width": 432,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1456,
+        -224
+      ],
+      "id": "5a7dfd58-efe0-4d63-9316-592c2d848034",
+      "name": "Sticky Note2"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "1. Fetch Live Job Feed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Fetch Live Job Feed": {
+      "main": [
+        [
+          {
+            "node": "2. Limit to 3 Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Limit to 3 Items": {
+      "main": [
+        [
+          {
+            "node": "3. AI Analyze & Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. AI Analyze & Score": {
+      "main": [
+        [
+          {
+            "node": "4. Parse & Clean AI JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Parse & Clean AI JSON": {
+      "main": [
+        [
+          {
+            "node": "5. Is High-Match?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Is High-Match?": {
+      "main": [
+        [
+          {
+            "node": "6. Save & Dedup in Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "5b. Skip Low-Score Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6. Save & Dedup in Sheets": {
+      "main": [
+        [
+          {
+            "node": "7. Send AI Alert to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
